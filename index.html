@@ -48,6 +48,28 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
 .good{color:#7ee787} .over{color:#ff7777}
 .benefit{text-align:right;font-size:12px;line-height:1.45}
 .benefit strong{color:var(--green)}
+
+.group-close-wrap{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.group-close{width:100%;height:42px;background:#24242d;border:1px solid #3a3a45;color:#f3f3f6;font-size:13px}
+.group-close:active{transform:translateY(1px)}
+
+.selected-details{grid-column:1/-1;margin-top:3px;border-top:1px solid var(--line);padding-top:7px}
+.selected-details summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;padding:8px 0 4px;font-size:12px;font-weight:800}
+.selected-details summary::-webkit-details-marker{display:none}
+.selected-details .selected-toggle{color:var(--pink)}
+.selected-details[open] .selected-toggle::before{content:"선택 내역 닫기 ▲"}
+.selected-details:not([open]) .selected-toggle::before{content:"선택 내역 보기 ▼"}
+.selected-summary{font-size:11px;color:var(--muted);font-weight:700}
+.selected-list{margin-top:7px;max-height:34vh;overflow:auto;border:1px solid var(--line);border-radius:10px;background:#101015}
+.selected-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:9px 10px;border-bottom:1px solid #27272f;align-items:center}
+.selected-row:last-child{border-bottom:0}
+.selected-name{font-size:12px;font-weight:800;line-height:1.35}
+.selected-option{font-size:10.5px;color:var(--muted);margin-top:2px}
+.selected-price{text-align:right;font-size:12px;font-weight:850;white-space:nowrap}
+.selected-calc{font-size:10px;color:var(--muted);margin-top:2px}
+.selected-empty{padding:14px 10px;text-align:center;color:var(--muted);font-size:11px}
+.summarybar{max-height:80vh;overflow-y:auto}
+
 @media(max-width:560px){
   .wrap{padding-top:14px} h1{font-size:20px}
   .suminner{grid-template-columns:1fr} .benefit{text-align:left}
@@ -972,6 +994,16 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
       <div id="remain" class="small"></div>
     </div>
     <div id="benefit" class="benefit">구매 특전 없음</div>
+
+    <details id="selectedDetails" class="selected-details">
+      <summary>
+        <span class="selected-toggle"></span>
+        <span id="selectedSummary" class="selected-summary">선택 0개</span>
+      </summary>
+      <div id="selectedList" class="selected-list">
+        <div class="selected-empty">선택한 상품이 없습니다.</div>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -983,11 +1015,42 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
   var countEl = document.getElementById('selectedCount');
   var remainEl = document.getElementById('remain');
   var benefitEl = document.getElementById('benefit');
+  var selectedDetailsEl = document.getElementById('selectedDetails');
+  var selectedSummaryEl = document.getElementById('selectedSummary');
+  var selectedListEl = document.getElementById('selectedList');
 
   function won(n){ return Number(n).toLocaleString('ko-KR') + '원'; }
 
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(ch){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+    });
+  }
+
+  function renderSelected(selected, count){
+    selectedSummaryEl.textContent = selected.length + '종 · ' + count + '개';
+
+    if(selected.length===0){
+      selectedListEl.innerHTML='<div class="selected-empty">선택한 상품이 없습니다.</div>';
+      return;
+    }
+
+    selectedListEl.innerHTML = selected.map(function(x){
+      return '<div class="selected-row">'
+        + '<div>'
+        +   '<div class="selected-name">'+esc(x.group)+'</div>'
+        +   '<div class="selected-option">'+esc(x.label)+'</div>'
+        + '</div>'
+        + '<div class="selected-price">'
+        +   won(x.subtotal)
+        +   '<div class="selected-calc">'+x.qty+'개 × '+won(x.price)+'</div>'
+        + '</div>'
+        + '</div>';
+    }).join('');
+  }
+
   function calc(){
-    var total=0, count=0;
+    var total=0, count=0, selected=[];
     items.forEach(function(row){
       var qEl=row.querySelector('.q');
       var max=parseInt(row.dataset.max,10)||0;
@@ -995,11 +1058,23 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
       if(q<0) q=0;
       if(q>max) q=max;
       qEl.value=q;
-      total += q * (parseInt(row.dataset.price,10)||0);
+      var price=parseInt(row.dataset.price,10)||0;
+      total += q * price;
       count += q;
+
+      if(q>0){
+        selected.push({
+          group: row.dataset.group || '',
+          label: row.dataset.label || '',
+          qty: q,
+          price: price,
+          subtotal: q * price
+        });
+      }
     });
     totalEl.textContent=won(total);
     countEl.textContent='선택 '+count+'개';
+    renderSelected(selected, count);
 
     var holder=Math.min(Math.floor(total/20000),10);
     if(holder===0){
@@ -1025,6 +1100,32 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
       localStorage.setItem('stellive_v4_budget', budgetEl.value||'');
     }catch(e){}
   }
+
+  Array.prototype.slice.call(document.querySelectorAll('.group')).forEach(function(group){
+    var body=group.querySelector('.group-body');
+    if(!body) return;
+
+    var wrap=document.createElement('div');
+    wrap.className='group-close-wrap';
+
+    var btn=document.createElement('button');
+    btn.type='button';
+    btn.className='group-close';
+    btn.textContent='이 상품 닫기 ▲';
+
+    btn.addEventListener('click',function(){
+      group.open=false;
+      var summary=group.querySelector('summary');
+      if(summary){
+        setTimeout(function(){
+          summary.scrollIntoView({behavior:'smooth',block:'center'});
+        },20);
+      }
+    });
+
+    wrap.appendChild(btn);
+    body.appendChild(wrap);
+  });
 
   items.forEach(function(row){
     var q=row.querySelector('.q');
