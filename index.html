@@ -68,6 +68,11 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
 .selected-price{text-align:right;font-size:12px;font-weight:850;white-space:nowrap}
 .selected-calc{font-size:10px;color:var(--muted);margin-top:2px}
 .selected-empty{padding:14px 10px;text-align:center;color:var(--muted);font-size:11px}
+
+.selected-export-wrap{margin-top:8px}
+.selected-export{width:100%;height:42px;background:#ff2f9b;color:#fff;border:0;border-radius:10px;font-size:13px;font-weight:850}
+.selected-export:active{transform:translateY(1px)}
+
 .summarybar{max-height:80vh;overflow-y:auto}
 
 @media(max-width:560px){
@@ -1003,6 +1008,9 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
       <div id="selectedList" class="selected-list">
         <div class="selected-empty">선택한 상품이 없습니다.</div>
       </div>
+      <div class="selected-export-wrap">
+        <button id="downloadSelectedImage" class="selected-export" type="button">선택 내역 이미지로 저장</button>
+      </div>
     </details>
   </div>
 </div>
@@ -1018,6 +1026,13 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
   var selectedDetailsEl = document.getElementById('selectedDetails');
   var selectedSummaryEl = document.getElementById('selectedSummary');
   var selectedListEl = document.getElementById('selectedList');
+  var downloadSelectedImageEl = document.getElementById('downloadSelectedImage');
+
+  var lastSelected = [];
+  var lastTotal = 0;
+  var lastCount = 0;
+  var lastBenefitText = '구매 특전 없음';
+  var lastBudgetText = '';
 
   function won(n){ return Number(n).toLocaleString('ko-KR') + '원'; }
 
@@ -1076,6 +1091,10 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
     countEl.textContent='선택 '+count+'개';
     renderSelected(selected, count);
 
+    lastSelected = selected.slice();
+    lastTotal = total;
+    lastCount = count;
+
     var holder=Math.min(Math.floor(total/20000),10);
     if(holder===0){
       benefitEl.textContent='구매 특전 없음';
@@ -1084,6 +1103,8 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
     } else {
       benefitEl.innerHTML='<strong>L홀더 '+holder+'종 랜덤</strong><br>A4 스페셜 포스터 1종';
     }
+
+    lastBenefitText = benefitEl.textContent.replace(/\s+/g,' ').trim();
 
     var b=parseInt((budgetEl.value||'').replace(/[^0-9]/g,''),10);
     if(b){
@@ -1095,10 +1116,193 @@ button{border:0;background:#2b2b34;color:white;font-weight:800;border-radius:9px
       remainEl.className='small';
     }
 
+    lastBudgetText = remainEl.textContent || '';
+
     try{
       localStorage.setItem('stellive_v4_qty', JSON.stringify(items.map(function(r){return r.querySelector('.q').value;})));
       localStorage.setItem('stellive_v4_budget', budgetEl.value||'');
     }catch(e){}
+  }
+
+
+  function drawRoundedRect(ctx, x, y, w, h, r){
+    var rr=Math.min(r,w/2,h/2);
+    ctx.beginPath();
+    ctx.moveTo(x+rr,y);
+    ctx.arcTo(x+w,y,x+w,y+h,rr);
+    ctx.arcTo(x+w,y+h,x,y+h,rr);
+    ctx.arcTo(x,y+h,x,y,rr);
+    ctx.arcTo(x,y,x+w,y,rr);
+    ctx.closePath();
+  }
+
+  function wrapCanvasText(ctx, text, maxWidth){
+    var chars=Array.from(String(text));
+    var lines=[], line='';
+    chars.forEach(function(ch){
+      var test=line+ch;
+      if(line && ctx.measureText(test).width>maxWidth){
+        lines.push(line);
+        line=ch;
+      }else{
+        line=test;
+      }
+    });
+    if(line) lines.push(line);
+    return lines.length ? lines : [''];
+  }
+
+  function downloadSelectedAsImage(){
+    if(!lastSelected.length){
+      alert('선택한 상품이 없습니다.');
+      return;
+    }
+
+    var W=1080;
+    var pad=70;
+    var rowGap=18;
+    var rows=[];
+
+    // Height calculation with wrapped titles/options.
+    var measure=document.createElement('canvas').getContext('2d');
+    lastSelected.forEach(function(x){
+      measure.font='700 31px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+      var g=wrapCanvasText(measure,x.group,610);
+      measure.font='500 25px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+      var l=wrapCanvasText(measure,x.label,610);
+      var textLines=g.length+l.length;
+      var h=Math.max(120, 42*textLines+48);
+      rows.push({item:x,groupLines:g,labelLines:l,h:h});
+    });
+
+    var headerH=275;
+    var footerH=210;
+    var H=headerH+footerH+rows.reduce(function(a,r){return a+r.h+rowGap;},0);
+
+    var canvas=document.createElement('canvas');
+    canvas.width=W;
+    canvas.height=H;
+    var ctx=canvas.getContext('2d');
+
+    // background
+    ctx.fillStyle='#0d0d11';
+    ctx.fillRect(0,0,W,H);
+
+    // header
+    ctx.fillStyle='#f7f7f9';
+    ctx.font='800 47px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+    ctx.fillText('STELLA MODE:ON 구매 목록',pad,82);
+
+    ctx.fillStyle='#aaaab4';
+    ctx.font='500 25px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+    ctx.fillText(lastSelected.length+'종 · 총 '+lastCount+'개',pad,130);
+
+    ctx.fillStyle='#ff2f9b';
+    ctx.font='900 55px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+    ctx.fillText(won(lastTotal),pad,208);
+
+    ctx.fillStyle='#30303a';
+    ctx.fillRect(pad,244,W-pad*2,2);
+
+    // rows
+    var y=headerH;
+    rows.forEach(function(r){
+      drawRoundedRect(ctx,pad,y,W-pad*2,r.h,22);
+      ctx.fillStyle='#18181e';
+      ctx.fill();
+      ctx.strokeStyle='#30303a';
+      ctx.lineWidth=2;
+      ctx.stroke();
+
+      var tx=pad+28;
+      var ty=y+39;
+
+      ctx.fillStyle='#f7f7f9';
+      ctx.font='700 31px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+      r.groupLines.forEach(function(line){
+        ctx.fillText(line,tx,ty);
+        ty+=38;
+      });
+
+      ctx.fillStyle='#aaaab4';
+      ctx.font='500 25px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+      r.labelLines.forEach(function(line){
+        ctx.fillText(line,tx,ty);
+        ty+=32;
+      });
+
+      ctx.textAlign='right';
+      ctx.fillStyle='#f7f7f9';
+      ctx.font='800 31px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+      ctx.fillText(won(r.item.subtotal),W-pad-28,y+48);
+
+      ctx.fillStyle='#aaaab4';
+      ctx.font='500 22px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+      ctx.fillText(r.item.qty+'개 × '+won(r.item.price),W-pad-28,y+82);
+      ctx.textAlign='left';
+
+      y+=r.h+rowGap;
+    });
+
+    // footer
+    y+=16;
+    ctx.fillStyle='#30303a';
+    ctx.fillRect(pad,y,W-pad*2,2);
+    y+=45;
+
+    ctx.fillStyle='#aaaab4';
+    ctx.font='500 24px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+    ctx.fillText('구매 특전',pad,y);
+
+    ctx.fillStyle='#b8e529';
+    ctx.font='700 27px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+    var benefitLines=wrapCanvasText(ctx,lastBenefitText,W-pad*2);
+    benefitLines.forEach(function(line){
+      y+=37;
+      ctx.fillText(line,pad,y);
+    });
+
+    if(lastBudgetText){
+      y+=44;
+      ctx.fillStyle='#aaaab4';
+      ctx.font='500 24px -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+      ctx.fillText(lastBudgetText,pad,y);
+    }
+
+    var now=new Date();
+    var stamp=now.getFullYear()
+      +String(now.getMonth()+1).padStart(2,'0')
+      +String(now.getDate()).padStart(2,'0')
+      +'_'+String(now.getHours()).padStart(2,'0')
+      +String(now.getMinutes()).padStart(2,'0');
+    var filename='STELLA_MODE_ON_구매목록_'+stamp+'.png';
+
+    function saveBlob(blob){
+      var url=URL.createObjectURL(blob);
+      var a=document.createElement('a');
+      a.href=url;
+      a.download=filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function(){URL.revokeObjectURL(url);},3000);
+    }
+
+    if(canvas.toBlob){
+      canvas.toBlob(function(blob){
+        if(blob) saveBlob(blob);
+        else window.open(canvas.toDataURL('image/png'),'_blank');
+      },'image/png');
+    }else{
+      var a=document.createElement('a');
+      a.href=canvas.toDataURL('image/png');
+      a.download=filename;
+      a.click();
+    }
+  }
+
+  if(downloadSelectedImageEl){
+    downloadSelectedImageEl.addEventListener('click',downloadSelectedAsImage);
   }
 
   Array.prototype.slice.call(document.querySelectorAll('.group')).forEach(function(group){
